@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CMYK Production Studio</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+  <div class="page-shell">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">Flask Production UI</p>
+        <h1>CMYK Production Studio</h1>
+        <p class="hero-copy">Batch-ready TIFF separation with click-pick sampling, multi-color extraction, production previews, and stable downloads.</p>
+      </div>
+      <div class="hero-actions">
+        <label class="upload-button">
+          <input id="uploadInput" type="file" accept=".tif,.tiff" multiple>
+          <span>Upload TIFF Files</span>
+        </label>
+        <button id="refreshButton" class="secondary-button">Refresh Workspace</button>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <aside class="sidebar">
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Settings</h2>
+            <button id="saveProfileButton" class="ghost-button">Save Profile</button>
+          </div>
+          <div class="form-grid">
+            <label>
+              <span>Match</span>
+              <select id="matchModeSelect">
+                <option value="exact">Exact</option>
+                <option value="nearest">Nearest</option>
+                <option value="spread">Spread</option>
+              </select>
+            </label>
+            <label>
+              <span>Mode</span>
+              <select id="selectionModeSelect">
+                <option value="keep">Keep</option>
+                <option value="remove">Remove</option>
+              </select>
+            </label>
+            <label>
+              <span>Spread</span>
+              <input id="spreadInput" type="number" min="0" max="40" value="6">
+            </label>
+            <label>
+              <span>Compression</span>
+              <select id="compressionSelect">
+                <option value="lzw">LZW</option>
+                <option value="deflate">Deflate</option>
+                <option value="none">None</option>
+              </select>
+            </label>
+            <label>
+              <span>Preview</span>
+              <select id="previewQualitySelect">
+                <option value="proxy">Fast Proxy</option>
+                <option value="full">Sharp Preview</option>
+              </select>
+            </label>
+            <label class="toggle">
+              <input id="invertGrayInput" type="checkbox">
+              <span>Invert grayscale</span>
+            </label>
+            <label class="toggle">
+              <input id="sharpenPreviewInput" type="checkbox">
+              <span>Sharpen preview</span>
+            </label>
+            <label>
+              <span>Gray Gamma</span>
+              <input id="gammaInput" type="number" min="0.2" max="3" step="0.1" value="1.0">
+            </label>
+            <label>
+              <span>Profile name</span>
+              <input id="profileNameInput" type="text" placeholder="Press settings name">
+            </label>
+            <label>
+              <span>Load profile</span>
+              <select id="profileSelect">
+                <option value="">Select profile</option>
+              </select>
+            </label>
+            <label class="wide">
+              <button id="loadProfileButton" class="secondary-button" type="button">Load Selected Profile</button>
+            </label>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Color Lab</h2>
+          </div>
+          <div class="cmyk-row">
+            <label><span>C</span><input id="cInput" type="number" min="0" max="100" value="89"></label>
+            <label><span>M</span><input id="mInput" type="number" min="0" max="100" value="33"></label>
+            <label><span>Y</span><input id="yInput" type="number" min="0" max="100" value="100"></label>
+            <label><span>K</span><input id="kInput" type="number" min="0" max="100" value="27"></label>
+          </div>
+          <div class="swatch-row">
+            <div id="currentSwatch" class="color-swatch"></div>
+            <div>
+              <p class="muted-label">Current Recipe</p>
+              <p id="currentRecipeText" class="recipe-readout">C 89 M 33 Y 100 K 27</p>
+            </div>
+          </div>
+          <div class="action-strip">
+            <p class="muted-label">Production Actions</p>
+            <div class="button-row">
+              <button id="addColorButton" class="primary-button" type="button">Add Color</button>
+              <button id="processButton" class="accent-button" type="button">Run Selected Separation</button>
+            </div>
+            <div class="button-row">
+              <button id="standardProcessButton" class="secondary-button strong-button" type="button">Run 4 Channel Separation</button>
+            </div>
+          </div>
+          <div class="button-row compact">
+            <button id="duplicateButton" class="ghost-button" type="button">Duplicate Last Job</button>
+            <button id="clearButton" class="ghost-button" type="button">Clear Job</button>
+          </div>
+
+          <div class="library-block">
+            <p class="muted-label">Selected Colors</p>
+            <div id="selectedColors" class="selected-list"></div>
+          </div>
+          <div class="library-block split">
+            <div>
+              <p class="muted-label">Recent</p>
+              <div id="recentColors" class="chip-list"></div>
+            </div>
+          </div>
+        </section>
+      </aside>
+
+      <section class="main-stage">
+        <section class="panel queue-panel">
+          <div class="panel-head">
+            <h2>Batch Queue</h2>
+            <p class="subtle-copy">Drag to reorder. Click a job to make it active.</p>
+          </div>
+          <div id="queueList" class="queue-list"></div>
+          <p id="queueEmpty" class="empty-state">No TIFF files loaded yet.</p>
+        </section>
+
+        <section class="panel">
+          <div class="preview-head">
+            <div>
+              <h2 id="activeJobTitle">Preview Workspace</h2>
+              <p id="activeJobMeta" class="subtle-copy">Upload TIFF files to begin.</p>
+            </div>
+            <div class="preview-toolbar">
+              <select id="pageSelect"></select>
+            </div>
+          </div>
+
+          <div class="preview-grid">
+            <div class="preview-stage preview-stage-wide">
+              <div id="previewScroll" class="preview-scroll">
+                <img id="previewImage" alt="TIFF preview">
+              </div>
+            </div>
+            <div class="info-stack">
+              <div class="info-card">
+                <p class="muted-label">File Info</p>
+                <div id="fileInfo" class="file-info"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="resultsPanel" class="panel hidden">
+          <div class="panel-head">
+            <h2>Results</h2>
+            <p id="resultMeta" class="subtle-copy">Run a separation to generate outputs.</p>
+          </div>
+          <div id="warningStack" class="warning-stack hidden"></div>
+          <div id="statGrid" class="stat-grid hidden"></div>
+          <div id="selectedResultSection" class="result-section hidden">
+            <div class="result-section-head">
+              <h3>Selected Color Output</h3>
+              <a id="zipDownload" class="download-link disabled-link" href="#" target="_blank" rel="noopener">Download Selected ZIP</a>
+            </div>
+            <div class="result-grid result-grid-two">
+              <article class="result-card">
+                <h3>Selected Separation</h3>
+                <img id="selectedPreview" alt="Selected preview" class="hidden">
+                <p id="selectedEmpty" class="empty-state">No selected separation yet.</p>
+              </article>
+              <article class="result-card">
+                <h3>Grayscale Output</h3>
+                <img id="grayscalePreview" alt="Grayscale preview" class="hidden">
+                <p id="grayscaleEmpty" class="empty-state">No grayscale output yet.</p>
+              </article>
+            </div>
+          </div>
+
+          <div id="standardResultSection" class="result-section hidden">
+            <div class="result-section-head">
+              <h3>4 Channel Separation</h3>
+              <a id="standardZipDownload" class="download-link disabled-link" href="#" target="_blank" rel="noopener">Download 4 Channel ZIP</a>
+            </div>
+            <div class="result-grid result-grid-four">
+              <article class="result-card">
+                <h3>Cyan Plate</h3>
+                <img id="cyanPreview" alt="Cyan preview" class="hidden">
+                <p id="cyanEmpty" class="empty-state">No cyan plate yet.</p>
+              </article>
+              <article class="result-card">
+                <h3>Magenta Plate</h3>
+                <img id="magentaPreview" alt="Magenta preview" class="hidden">
+                <p id="magentaEmpty" class="empty-state">No magenta plate yet.</p>
+              </article>
+              <article class="result-card">
+                <h3>Yellow Plate</h3>
+                <img id="yellowPreview" alt="Yellow preview" class="hidden">
+                <p id="yellowEmpty" class="empty-state">No yellow plate yet.</p>
+              </article>
+              <article class="result-card">
+                <h3>Black Plate</h3>
+                <img id="blackPreview" alt="Black preview" class="hidden">
+                <p id="blackEmpty" class="empty-state">No black plate yet.</p>
+              </article>
+            </div>
+            <div class="result-grid result-grid-four">
+              <article class="result-card">
+                <h3>Cyan Grayscale</h3>
+                <img id="cyanGrayPreview" alt="Cyan grayscale preview" class="hidden">
+                <p id="cyanGrayEmpty" class="empty-state">No cyan grayscale yet.</p>
+              </article>
+              <article class="result-card">
+                <h3>Magenta Grayscale</h3>
+                <img id="magentaGrayPreview" alt="Magenta grayscale preview" class="hidden">
+                <p id="magentaGrayEmpty" class="empty-state">No magenta grayscale yet.</p>
+              </article>
+              <article class="result-card">
+                <h3>Yellow Grayscale</h3>
+                <img id="yellowGrayPreview" alt="Yellow grayscale preview" class="hidden">
+                <p id="yellowGrayEmpty" class="empty-state">No yellow grayscale yet.</p>
+              </article>
+              <article class="result-card">
+                <h3>Black Grayscale</h3>
+                <img id="blackGrayPreview" alt="Black grayscale preview" class="hidden">
+                <p id="blackGrayEmpty" class="empty-state">No black grayscale yet.</p>
+              </article>
+            </div>
+            <p id="standardMeta" class="subtle-copy">Run 4 channel separation to generate CMYK plates.</p>
+          </div>
+          <div id="historySection" class="report-grid report-grid-single hidden">
+            <div>
+              <div class="panel-head inline-head">
+                <p class="muted-label">History</p>
+                <button id="clearHistoryButton" class="ghost-button" type="button">Clear History</button>
+              </div>
+              <div id="historyList" class="recipe-list"></div>
+            </div>
+            <div id="historyViewer" class="history-viewer hidden"></div>
+          </div>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <template id="queueItemTemplate">
+    <article class="queue-item" draggable="true">
+      <button class="queue-main" type="button">
+        <span class="queue-title"></span>
+        <span class="queue-meta"></span>
+      </button>
+      <button class="queue-delete ghost-button" type="button">Delete</button>
+    </article>
+  </template>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

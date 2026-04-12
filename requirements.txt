@@ -1,0 +1,7 @@
+numpy>=2.3.4,<3
+tifffile>=2025.6.11
+Pillow>=12.0.0,<13
+Flask>=3.1,<4
+plotly>=5.24,<6
+streamlit-plotly-events>=0.0.6,<1
+streamlit>=1.40,<2
