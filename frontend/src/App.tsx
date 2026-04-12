@@ -99,6 +99,10 @@ function manualRecipeFromSample(sample: SampleResponse): ManualRecipe {
   };
 }
 
+function recipeTuple(recipe: ManualRecipe): [number, number, number, number] {
+  return [recipe.c, recipe.m, recipe.y, recipe.k];
+}
+
 export default function App() {
   const [state, setState] = useState<AppState | null>(null);
   const [settingsDraft, setSettingsDraft] = useState<Settings>(EMPTY_SETTINGS);
@@ -106,7 +110,6 @@ export default function App() {
   const [profileName, setProfileName] = useState("");
   const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const [refreshToken, setRefreshToken] = useState(Date.now());
   const [uploading, setUploading] = useState(false);
   const [processingSelected, setProcessingSelected] = useState(false);
   const [processingStandard, setProcessingStandard] = useState(false);
@@ -229,7 +232,6 @@ export default function App() {
   function applyState(nextState: AppState) {
     startTransition(() => {
       setState(nextState);
-      setRefreshToken(Date.now());
     });
   }
 
@@ -296,13 +298,17 @@ export default function App() {
     if (!activeJob) return;
     setProcessingSelected(true);
     try {
+      const currentRecipe = {
+        name: "Current",
+        cmyk: recipeTuple(manualRecipe),
+      };
       const nextState = await run(() =>
         api<AppState>(`/api/job/${activeJob.id}/process`, {
           method: "POST",
           json: {
             ...settingsDraft,
             page_index: activeJob.current_page,
-            selected_colors: activeJob.selected_colors,
+            selected_colors: [currentRecipe],
             manual_recipe: manualRecipe,
           },
         }),
@@ -488,7 +494,7 @@ export default function App() {
   const previewUrl = activeJob
     ? `/preview/${activeJob.id}/original?page=${activeJob.current_page}&quality=${encodeURIComponent(
         settingsDraft.preview_quality,
-      )}&sharpen=${settingsDraft.preview_sharpen ? "1" : "0"}&t=${refreshToken}`
+      )}&sharpen=${settingsDraft.preview_sharpen ? "1" : "0"}`
     : "";
 
   function renderSelectedOutput(summary: ResultSummary, mode: "keep" | "remove") {
@@ -532,14 +538,14 @@ export default function App() {
           <article className="result-panel">
             <h4>{isRemove ? "Original TIFF After Removal" : "Selected Separation"}</h4>
             <img
-              src={`${summary.previews.selected}?t=${refreshToken}`}
+              src={summary.previews.selected}
               alt={isRemove ? "Removed preview" : "Selected preview"}
             />
           </article>
           <article className="result-panel">
             <h4>{isRemove ? "Grayscale After Removal" : "Grayscale Output"}</h4>
             <img
-              src={`${summary.previews.grayscale}?t=${refreshToken}`}
+              src={summary.previews.grayscale}
               alt={isRemove ? "Removed grayscale preview" : "Grayscale preview"}
             />
           </article>
@@ -1112,7 +1118,7 @@ export default function App() {
                     <article key={`${color}-color`} className="result-panel">
                       <h4>{color[0].toUpperCase() + color.slice(1)} Plate</h4>
                       <img
-                        src={`${activeJob.last_standard_result?.previews[`${color}_color`]}?t=${refreshToken}`}
+                        src={activeJob.last_standard_result?.previews[`${color}_color`]}
                         alt={`${color} color plate`}
                       />
                     </article>
@@ -1121,7 +1127,7 @@ export default function App() {
                     <article key={`${color}-gray`} className="result-panel">
                       <h4>{color[0].toUpperCase() + color.slice(1)} Gray</h4>
                       <img
-                        src={`${activeJob.last_standard_result?.previews[`${color}_gray`]}?t=${refreshToken}`}
+                        src={activeJob.last_standard_result?.previews[`${color}_gray`]}
                         alt={`${color} grayscale plate`}
                       />
                     </article>
@@ -1238,14 +1244,14 @@ export default function App() {
                   <article className="history-thumb">
                     <h4>Original</h4>
                     <img
-                      src={`${selectedHistory.summary.previews.original}?t=${refreshToken}`}
+                      src={selectedHistory.summary.previews.original}
                       alt="Original preview"
                     />
                   </article>
                   {historyImageEntries(selectedHistory).map((entry) => (
                     <article key={entry.label} className="history-thumb">
                       <h4>{entry.label}</h4>
-                      <img src={`${entry.src}?t=${refreshToken}`} alt={entry.label} />
+                      <img src={entry.src} alt={entry.label} />
                     </article>
                   ))}
                 </div>
