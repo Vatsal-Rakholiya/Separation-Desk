@@ -90,6 +90,15 @@ function decodeBase64Bytes(value: string) {
   return bytes;
 }
 
+function manualRecipeFromSample(sample: SampleResponse): ManualRecipe {
+  return {
+    c: sample.cmyk[0],
+    m: sample.cmyk[1],
+    y: sample.cmyk[2],
+    k: sample.cmyk[3],
+  };
+}
+
 export default function App() {
   const [state, setState] = useState<AppState | null>(null);
   const [settingsDraft, setSettingsDraft] = useState<Settings>(EMPTY_SETTINGS);
@@ -468,12 +477,7 @@ export default function App() {
       if (!response.ok) return;
       const data = (await response.json()) as SampleResponse;
       setSample(data);
-      setManualRecipe({
-        c: data.cmyk[0],
-        m: data.cmyk[1],
-        y: data.cmyk[2],
-        k: data.cmyk[3],
-      });
+      setManualRecipe(manualRecipeFromSample(data));
     } catch {
       // Ignore aborted sampling requests.
     } finally {
@@ -542,6 +546,15 @@ export default function App() {
         </div>
       </div>
     );
+  }
+
+  function handleActionClick(
+    event: React.MouseEvent<HTMLButtonElement>,
+    action: () => void | Promise<void>,
+  ) {
+    event.preventDefault();
+    event.stopPropagation();
+    void action();
   }
 
   return (
@@ -711,10 +724,11 @@ export default function App() {
               ))}
             </div>
             <div className="button-row">
-              <button className="primary-button" onClick={() => void addColorFromManualRecipe()}>
+              <button type="button" className="primary-button" onClick={() => void addColorFromManualRecipe()}>
                 Add Color
               </button>
               <button
+                type="button"
                 className="accent-button"
                 disabled={!activeJob || processingSelected}
                 onClick={() => void processSelectedSeparation()}
@@ -724,6 +738,7 @@ export default function App() {
             </div>
             <div className="inline-note">Run Color now generates both selected and removed outputs.</div>
             <button
+              type="button"
               className="secondary-wide"
               disabled={!activeJob || processingStandard}
               onClick={() => void processStandardSeparation()}
@@ -734,6 +749,7 @@ export default function App() {
               <div className="subsection-head">
                 <span className="micro-label">Selected</span>
                 <button
+                  type="button"
                   className="ghost-button"
                   disabled={!activeJob}
                   onClick={() =>
@@ -758,6 +774,7 @@ export default function App() {
                         </span>
                       </div>
                       <button
+                        type="button"
                         className="mini-button"
                         onClick={() =>
                           void commitJobState(
@@ -781,6 +798,7 @@ export default function App() {
               <div className="chip-cloud">
                 {deferredState?.recent_colors.map((item) => (
                   <button
+                    type="button"
                     key={`${item.name}-${item.cmyk.join("-")}`}
                     className="recipe-chip"
                     onClick={() =>
@@ -834,6 +852,7 @@ export default function App() {
             </div>
             <div className="button-row">
               <button
+                type="button"
                 className="secondary-pill"
                 disabled={savingProfile}
                 onClick={() => void saveProfile()}
@@ -841,6 +860,7 @@ export default function App() {
                 {savingProfile ? "Saving..." : "Save Profile"}
               </button>
               <button
+                type="button"
                 className="secondary-pill"
                 disabled={loadingProfile}
                 onClick={() => void loadProfile()}
@@ -868,6 +888,7 @@ export default function App() {
               </div>
               <div className="preview-tools">
                 <button
+                  type="button"
                   className={`picker-button ${pickerEnabled ? "active" : ""}`}
                   disabled={!activeJob}
                   onClick={() => {
@@ -895,6 +916,7 @@ export default function App() {
                   ))}
                 </select>
                 <button
+                  type="button"
                   className="ghost-button"
                   disabled={!activeJob}
                   onClick={() =>
@@ -925,6 +947,16 @@ export default function App() {
                     }}
                     onClick={(event) => {
                       if (!pickerEnabled) return;
+                      if (event.button !== 0) return;
+                      const hoveredSample = readInspectorSample(
+                        event.clientX,
+                        event.clientY,
+                        event.currentTarget,
+                      );
+                      if (hoveredSample) {
+                        setSample(hoveredSample);
+                        setManualRecipe(manualRecipeFromSample(hoveredSample));
+                      }
                       void inspectPixel(
                         event.clientX,
                         event.clientY,
@@ -1116,6 +1148,7 @@ export default function App() {
                     className={`queue-card ${job.id === deferredState.active_job_id ? "active" : ""}`}
                   >
                     <button
+                      type="button"
                       className="queue-main"
                       onClick={() => void commitJobState(`/api/job/${job.id}/activate`, "POST", {})}
                     >
@@ -1124,8 +1157,11 @@ export default function App() {
                       <span>{job.pages.length} page(s)</span>
                     </button>
                     <button
+                      type="button"
                       className="mini-button"
-                      onClick={() => void commitJobState(`/api/job/${job.id}`, "DELETE")}
+                      onClick={(event) =>
+                        handleActionClick(event, () => commitJobState(`/api/job/${job.id}`, "DELETE"))
+                      }
                     >
                       Delete
                     </button>
@@ -1144,8 +1180,11 @@ export default function App() {
                 <h2>Recent Runs</h2>
               </div>
               <button
+                type="button"
                 className="ghost-button"
-                onClick={() => void commitJobState("/api/history/clear", "POST", {})}
+                onClick={(event) =>
+                  handleActionClick(event, () => commitJobState("/api/history/clear", "POST", {}))
+                }
               >
                 Clear
               </button>
@@ -1157,7 +1196,7 @@ export default function App() {
                     key={item.id}
                     className={`history-card ${item.id === selectedHistoryId ? "active" : ""}`}
                   >
-                    <button className="history-main" onClick={() => setSelectedHistoryId(item.id)}>
+                    <button type="button" className="history-main" onClick={() => setSelectedHistoryId(item.id)}>
                       <strong>{item.job_name}</strong>
                       <span>
                         {item.file_name} · page {item.page}
@@ -1169,8 +1208,11 @@ export default function App() {
                       </span>
                     </button>
                     <button
+                      type="button"
                       className="mini-button"
-                      onClick={() => void commitJobState(`/api/history/${item.id}`, "DELETE")}
+                      onClick={(event) =>
+                        handleActionClick(event, () => commitJobState(`/api/history/${item.id}`, "DELETE"))
+                      }
                     >
                       Delete
                     </button>
