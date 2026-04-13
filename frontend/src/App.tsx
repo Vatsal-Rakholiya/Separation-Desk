@@ -109,6 +109,8 @@ export default function App() {
   const [manualRecipe, setManualRecipe] = useState<ManualRecipe>(FALLBACK_RECIPE);
   const [profileName, setProfileName] = useState("");
   const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null);
+  const [selectedRunView, setSelectedRunView] = useState<"keep" | "remove">("keep");
+  const [standardRunView, setStandardRunView] = useState<"color" | "gray">("color");
   const [error, setError] = useState("");
   const [uploading, setUploading] = useState(false);
   const [processingSelected, setProcessingSelected] = useState(false);
@@ -116,6 +118,7 @@ export default function App() {
   const [loadingProfile, setLoadingProfile] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
   const [selectedProfile, setSelectedProfile] = useState("");
+  const [resultsView, setResultsView] = useState<"selected" | "standard">("selected");
   const [pickerEnabled, setPickerEnabled] = useState(false);
   const [sample, setSample] = useState<SampleResponse | null>(null);
   const [sampling, setSampling] = useState(false);
@@ -154,14 +157,21 @@ export default function App() {
       setSelectedHistoryId(null);
       return;
     }
-    if (
-      selectedHistoryId &&
-      deferredState.history.some((item) => item.id === selectedHistoryId)
-    ) {
+    if (selectedHistoryId && deferredState.history.some((item) => item.id === selectedHistoryId)) {
       return;
     }
-    setSelectedHistoryId(deferredState.history[deferredState.history.length - 1]?.id ?? null);
+    setSelectedHistoryId(null);
   }, [deferredState?.history, selectedHistoryId]);
+
+  useEffect(() => {
+    if (activeJob?.last_result && !activeJob?.last_standard_result) {
+      setResultsView("selected");
+      return;
+    }
+    if (activeJob?.last_standard_result && !activeJob?.last_result) {
+      setResultsView("standard");
+    }
+  }, [activeJob?.id, activeJob?.last_result, activeJob?.last_standard_result]);
 
   useEffect(() => {
     sampleAbortRef.current?.abort();
@@ -235,6 +245,22 @@ export default function App() {
     });
   }
 
+  function applyOptimisticColor(jobId: string, color: Recipe) {
+    startTransition(() => {
+      setState((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          jobs: current.jobs.map((job) =>
+            job.id === jobId
+              ? { ...job, selected_colors: [...job.selected_colors, color] }
+              : job,
+          ),
+        };
+      });
+    });
+  }
+
   async function fetchState() {
     try {
       const nextState = await api<AppState>("/api/state");
@@ -288,27 +314,45 @@ export default function App() {
   async function addColorFromManualRecipe() {
     if (!activeJob) return;
     const colorName = `Color ${activeJob.selected_colors.length + 1}`;
-    await commitJobState(`/api/job/${activeJob.id}/colors`, "POST", {
-      ...manualRecipe,
+    const nextColor: Recipe = {
       name: colorName,
-    });
+      cmyk: recipeTuple(manualRecipe),
+    };
+    applyOptimisticColor(activeJob.id, nextColor);
+    try {
+      await commitJobState(`/api/job/${activeJob.id}/colors`, "POST", {
+        ...manualRecipe,
+        name: colorName,
+      });
+    } catch (error) {
+      void fetchState();
+      throw error;
+    }
   }
 
   async function processSelectedSeparation() {
     if (!activeJob) return;
     setProcessingSelected(true);
+    setResultsView("selected");
+    setSelectedRunView("keep");
     try {
-      const currentRecipe = {
+      const currentRecipe: Recipe = {
         name: "Current",
         cmyk: recipeTuple(manualRecipe),
       };
+      const hasSelectedColors = activeJob.selected_colors.length > 0;
+      const selectedColorsForRun = hasSelectedColors
+        ? activeJob.selected_colors.map((item) =>
+            item.name === "Current" ? currentRecipe : item,
+          )
+        : [currentRecipe];
       const nextState = await run(() =>
         api<AppState>(`/api/job/${activeJob.id}/process`, {
           method: "POST",
           json: {
             ...settingsDraft,
             page_index: activeJob.current_page,
-            selected_colors: [currentRecipe],
+            selected_colors: selectedColorsForRun,
             manual_recipe: manualRecipe,
           },
         }),
@@ -322,6 +366,8 @@ export default function App() {
   async function processStandardSeparation() {
     if (!activeJob) return;
     setProcessingStandard(true);
+    setResultsView("standard");
+    setStandardRunView("color");
     try {
       const nextState = await run(() =>
         api<AppState>(`/api/job/${activeJob.id}/standard`, {
@@ -540,6 +586,8 @@ export default function App() {
             <img
               src={summary.previews.selected}
               alt={isRemove ? "Removed preview" : "Selected preview"}
+              loading="lazy"
+              decoding="async"
             />
           </article>
           <article className="result-panel">
@@ -547,6 +595,8 @@ export default function App() {
             <img
               src={summary.previews.grayscale}
               alt={isRemove ? "Removed grayscale preview" : "Grayscale preview"}
+              loading="lazy"
+              decoding="async"
             />
           </article>
         </div>
@@ -1055,9 +1105,27 @@ export default function App() {
                 <span className="micro-label">Outputs</span>
                 <h2>Results</h2>
               </div>
+              <div className="view-switch">
+                <button
+                  type="button"
+                  className={`view-chip ${resultsView === "selected" ? "active" : ""}`}
+                  disabled={!activeJob?.last_result}
+                  onClick={() => setResultsView("selected")}
+                >
+                  Run Color
+                </button>
+                <button
+                  type="button"
+                  className={`view-chip ${resultsView === "standard" ? "active" : ""}`}
+                  disabled={!activeJob?.last_standard_result}
+                  onClick={() => setResultsView("standard")}
+                >
+                  4 Channel
+                </button>
+              </div>
             </div>
 
-            {selectedRun ? (
+            {resultsView === "selected" && selectedRun ? (
               <>
                 <div className="result-head split-head">
                   <div>
@@ -1068,21 +1136,38 @@ export default function App() {
                     Download Combined ZIP
                   </a>
                 </div>
-                {renderSelectedOutput(selectedRun.selected_result, "keep")}
-                {renderSelectedOutput(selectedRun.removed_result, "remove")}
+                <div className="view-switch sub-switch">
+                  <button
+                    type="button"
+                    className={`view-chip ${selectedRunView === "keep" ? "active" : ""}`}
+                    onClick={() => setSelectedRunView("keep")}
+                  >
+                    Selected Preview
+                  </button>
+                  <button
+                    type="button"
+                    className={`view-chip ${selectedRunView === "remove" ? "active" : ""}`}
+                    onClick={() => setSelectedRunView("remove")}
+                  >
+                    Removed Preview
+                  </button>
+                </div>
+                {selectedRunView === "keep"
+                  ? renderSelectedOutput(selectedRun.selected_result, "keep")
+                  : renderSelectedOutput(selectedRun.removed_result, "remove")}
               </>
-            ) : activeJob?.last_result ? (
+            ) : resultsView === "selected" && activeJob?.last_result ? (
               renderSelectedOutput(
                 activeJob.last_result as ResultSummary,
                 (activeJob.last_result as ResultSummary).operation === "remove" ? "remove" : "keep",
               )
-            ) : (
+            ) : resultsView === "selected" ? (
               <div className="empty-note large">
                 Run selected color to generate both selected and removed outputs.
               </div>
-            )}
+            ) : null}
 
-            {activeJob?.last_standard_result ? (
+            {resultsView === "standard" && activeJob?.last_standard_result ? (
               <div className="result-block">
                 <div className="result-head">
                   <div>
@@ -1113,26 +1198,45 @@ export default function App() {
                     <strong>{activeJob.last_standard_result.stats.dpi_x?.toFixed(0) ?? 0}</strong>
                   </div>
                 </div>
+                <div className="view-switch sub-switch">
+                  <button
+                    type="button"
+                    className={`view-chip ${standardRunView === "color" ? "active" : ""}`}
+                    onClick={() => setStandardRunView("color")}
+                  >
+                    Color Plates
+                  </button>
+                  <button
+                    type="button"
+                    className={`view-chip ${standardRunView === "gray" ? "active" : ""}`}
+                    onClick={() => setStandardRunView("gray")}
+                  >
+                    Gray Plates
+                  </button>
+                </div>
                 <div className="result-grid four-up">
                   {(["cyan", "magenta", "yellow", "black"] as const).map((color) => (
                     <article key={`${color}-color`} className="result-panel">
-                      <h4>{color[0].toUpperCase() + color.slice(1)} Plate</h4>
+                      <h4>
+                        {color[0].toUpperCase() + color.slice(1)} {standardRunView === "color" ? "Plate" : "Gray"}
+                      </h4>
                       <img
-                        src={activeJob.last_standard_result?.previews[`${color}_color`]}
-                        alt={`${color} color plate`}
-                      />
-                    </article>
-                  ))}
-                  {(["cyan", "magenta", "yellow", "black"] as const).map((color) => (
-                    <article key={`${color}-gray`} className="result-panel">
-                      <h4>{color[0].toUpperCase() + color.slice(1)} Gray</h4>
-                      <img
-                        src={activeJob.last_standard_result?.previews[`${color}_gray`]}
-                        alt={`${color} grayscale plate`}
+                        src={
+                          activeJob.last_standard_result?.previews[
+                            `${color}_${standardRunView === "color" ? "color" : "gray"}`
+                          ]
+                        }
+                        alt={`${color} ${standardRunView} plate`}
+                        loading="lazy"
+                        decoding="async"
                       />
                     </article>
                   ))}
                 </div>
+              </div>
+            ) : resultsView === "standard" ? (
+              <div className="empty-note large">
+                Run 4 Channel Separation to generate CMYK plate outputs.
               </div>
             ) : null}
           </section>
@@ -1246,16 +1350,20 @@ export default function App() {
                     <img
                       src={selectedHistory.summary.previews.original}
                       alt="Original preview"
+                      loading="lazy"
+                      decoding="async"
                     />
                   </article>
                   {historyImageEntries(selectedHistory).map((entry) => (
                     <article key={entry.label} className="history-thumb">
                       <h4>{entry.label}</h4>
-                      <img src={entry.src} alt={entry.label} />
+                      <img src={entry.src} alt={entry.label} loading="lazy" decoding="async" />
                     </article>
                   ))}
                 </div>
               </div>
+            ) : deferredState?.history.length ? (
+              <div className="empty-note large">Select a history row to load its preview images.</div>
             ) : null}
           </section>
         </aside>

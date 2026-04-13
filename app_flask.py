@@ -28,11 +28,25 @@ from werkzeug.utils import secure_filename
 
 
 BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = BASE_DIR / "flask_studio_data"
+
+
+def resolve_data_dir():
+    override = os.environ.get("CMYK_STUDIO_DATA_DIR", "").strip()
+    if override:
+        return Path(override).expanduser()
+
+    local_appdata = os.environ.get("LOCALAPPDATA", "").strip()
+    if local_appdata:
+        return Path(local_appdata) / "CMYKStudio" / "flask_studio_data"
+
+    return BASE_DIR / "flask_studio_data"
+
+
+DATA_DIR = resolve_data_dir()
 SESSIONS_DIR = DATA_DIR / "sessions"
 FRONTEND_DIST_DIR = BASE_DIR / "frontend" / "dist"
-DATA_DIR.mkdir(exist_ok=True)
-SESSIONS_DIR.mkdir(exist_ok=True)
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 
 APP = Flask(__name__)
 APP.secret_key = os.environ.get("FLASK_SECRET_KEY", "cmyk-production-studio-dev-secret")
@@ -40,6 +54,7 @@ APP.config["MAX_CONTENT_LENGTH"] = 1024 * 1024 * 512
 
 CHANNELS = ["cyan", "magenta", "yellow", "black"]
 CHANNEL_INDEX = {name: idx for idx, name in enumerate(CHANNELS)}
+RESULT_PREVIEW_MAX_WIDTH = 1100
 PRESET_RECIPES = [
     {"name": "Print Green", "cmyk": [89, 33, 100, 27]},
     {"name": "Deep Green", "cmyk": [89, 0, 50, 59]},
@@ -408,6 +423,16 @@ def sampled_preview(rgb_array, max_width, sharpen=False):
     return np.array(image)
 
 
+def sampled_gray_preview(gray_array, max_width):
+    width = gray_array.shape[1]
+    if width <= max_width:
+        image = pil_from_gray(gray_array)
+    else:
+        height = max(1, int(round(gray_array.shape[0] * (max_width / width))))
+        image = pil_from_gray(gray_array).resize((max_width, height), Image.Resampling.LANCZOS)
+    return np.array(image)
+
+
 def preview_dimensions(height, width, max_width):
     if width <= max_width:
         return width, height
@@ -596,9 +621,12 @@ def write_result_files(job, settings, result_payload, file_base):
     for name, data in output_files.items():
         (result_dir / name).write_bytes(data)
 
-    (result_dir / "selected_preview.png").write_bytes(png_bytes_from_rgb(result_payload["selected_preview"]))
-    (result_dir / "grayscale_preview.png").write_bytes(png_bytes_from_gray(result_payload["grayscale"]))
-    (result_dir / "original_preview.png").write_bytes(png_bytes_from_rgb(result_payload["original_preview"]))
+    selected_preview = sampled_preview(result_payload["selected_preview"], RESULT_PREVIEW_MAX_WIDTH)
+    grayscale_preview = sampled_gray_preview(result_payload["grayscale"], RESULT_PREVIEW_MAX_WIDTH)
+    original_preview = sampled_preview(result_payload["original_preview"], RESULT_PREVIEW_MAX_WIDTH)
+    (result_dir / "selected_preview.png").write_bytes(png_bytes_from_rgb(selected_preview))
+    (result_dir / "grayscale_preview.png").write_bytes(png_bytes_from_gray(grayscale_preview))
+    (result_dir / "original_preview.png").write_bytes(png_bytes_from_rgb(original_preview))
 
     return result_id, result_dir, output_files
 
@@ -701,12 +729,15 @@ def write_standard_result(job, page_index, compression):
             compression=compression,
             resolution=resolution,
         )
-        preview_files[f"{color}_color"] = png_bytes_from_rgb(cmyk_to_rgb_preview(separation))
-        preview_files[f"{color}_gray"] = png_bytes_from_gray(grayscale_plate)
+        color_preview = sampled_preview(cmyk_to_rgb_preview(separation), RESULT_PREVIEW_MAX_WIDTH)
+        gray_preview = sampled_gray_preview(grayscale_plate, RESULT_PREVIEW_MAX_WIDTH)
+        preview_files[f"{color}_color"] = png_bytes_from_rgb(color_preview)
+        preview_files[f"{color}_gray"] = png_bytes_from_gray(gray_preview)
         (result_dir / f"{color}_color_preview.png").write_bytes(preview_files[f"{color}_color"])
         (result_dir / f"{color}_gray_preview.png").write_bytes(preview_files[f"{color}_gray"])
 
-    (result_dir / "original_preview.png").write_bytes(png_bytes_from_rgb(payload["rgb_preview"]))
+    original_preview = sampled_preview(payload["rgb_preview"], RESULT_PREVIEW_MAX_WIDTH)
+    (result_dir / "original_preview.png").write_bytes(png_bytes_from_rgb(original_preview))
 
     zip_bytes = build_zip(output_files)
     (result_dir / "standard_outputs.zip").write_bytes(zip_bytes)
@@ -1018,7 +1049,6 @@ def api_process(job_id):
         settings["match_mode"],
         settings["spread"],
     )
-    processing_seconds = time.perf_counter() - start_time
 
     for item in matched_recipes:
         matched = np.array(item["matched"], dtype=np.uint8)
@@ -1052,6 +1082,8 @@ def api_process(job_id):
         removed_payload,
         removed_file_base,
     )
+    bundle_id = write_selected_run_bundle(job, selected_files, removed_files)
+    processing_seconds = time.perf_counter() - start_time
     selected_variant = result_summary(
         job,
         selected_result_id,
@@ -1066,7 +1098,6 @@ def api_process(job_id):
         removed_file_base,
         processing_seconds,
     )
-    bundle_id = write_selected_run_bundle(job, selected_files, removed_files)
     summary = selected_run_summary(
         job,
         bundle_id,
@@ -1099,10 +1130,10 @@ def api_standard(job_id):
 
     start_time = time.perf_counter()
     summary = write_standard_result(job, page_index, settings["compression"])
-    processing_seconds = time.perf_counter() - start_time
 
     payload = load_page_payload(job["file_path"], page_index)
     page = job["pages"][page_index]
+    processing_seconds = time.perf_counter() - start_time
     summary["stats"] = {
         "processing_seconds": processing_seconds,
         "width": int(payload["cmyk"].shape[1]),

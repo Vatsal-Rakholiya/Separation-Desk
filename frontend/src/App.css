@@ -236,6 +236,32 @@ textarea {
   margin-bottom: 18px;
 }
 
+.view-switch {
+  display: inline-flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.sub-switch {
+  margin: 12px 0 0;
+}
+
+.view-chip {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.view-chip.active {
+  background: rgba(15, 76, 129, 0.12);
+  border-color: rgba(15, 76, 129, 0.22);
+  color: var(--accent);
+}
+
 .card-head h2,
 .result-head h3,
 .history-head strong {
@@ -729,6 +755,8 @@ textarea:focus {
   border: 1px solid rgba(24, 33, 43, 0.08);
   border-radius: 20px;
   background: rgba(255, 255, 255, 0.72);
+  content-visibility: auto;
+  contain-intrinsic-size: 320px;
 }
 
 .result-panel h4,
